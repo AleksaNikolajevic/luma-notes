@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+.openai/
+.secrets/
+pnpm-lock.yaml
+*.tsbuildinfo

@@ -1,0 +1,160 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-notes}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-notes_admin}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+    secrets:
+      - postgres_admin_password
+    volumes:
+      - notes_pg_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 200
+    mem_limit: 1g
+    cpus: 2
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_ADMIN_USER:-notes_admin} -d
+          ${POSTGRES_DB:-notes}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  migrate:
+    image: luma-notes-api:local
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-notes}
+      DB_USER: ${POSTGRES_ADMIN_USER:-notes_admin}
+      DB_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      APP_DB_ROLE: ${POSTGRES_APP_USER:-notes_app}
+      APP_DB_PASSWORD_FILE: /run/secrets/postgres_app_password
+      NODE_ENV: production
+      PUBLIC_ORIGIN:
+        ${PUBLIC_ORIGIN:?PUBLIC_ORIGIN mora biti javni HTTPS origin}
+    secrets:
+      - postgres_admin_password
+      - postgres_app_password
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["node", "--disable-proto=throw", "dist/migrate.js"]
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 384m
+    cpus: 1
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: luma-notes-api:local
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-notes}
+      DB_USER: ${POSTGRES_APP_USER:-notes_app}
+      DB_PASSWORD_FILE: /run/secrets/postgres_app_password
+      NODE_ENV: production
+      PORT: 4000
+      PUBLIC_ORIGIN:
+        ${PUBLIC_ORIGIN:?PUBLIC_ORIGIN mora biti javni HTTPS origin}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      TRUST_PROXY_HOPS:
+        ${TRUST_PROXY_HOPS:?Podesite broj pouzdanih proxy hopova}
+      REGISTRATION_MODE: ${REGISTRATION_MODE:-closed}
+      REGISTRATION_INVITE_CODE_HASH: ${REGISTRATION_INVITE_CODE_HASH:-}
+      SESSION_DAYS: ${SESSION_DAYS:-14}
+      MAX_SESSIONS_PER_USER: ${MAX_SESSIONS_PER_USER:-5}
+      MAX_NOTES_PER_USER: ${MAX_NOTES_PER_USER:-1000}
+      MAX_NOTE_BYTES: ${MAX_NOTE_BYTES:-100000}
+      MAX_TOTAL_NOTE_BYTES_PER_USER: ${MAX_TOTAL_NOTE_BYTES_PER_USER:-25000000}
+      NOTES_PAGE_SIZE: ${NOTES_PAGE_SIZE:-50}
+    secrets:
+      - postgres_app_password
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - frontend
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 150
+    mem_limit: 512m
+    cpus: 1
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - frontend
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:rw,noexec,nosuid,size=32m,mode=1777
+      - /var/run:rw,noexec,nosuid,size=4m,mode=1777
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 128m
+    cpus: 0.5
+
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  notes_pg_data:
+
+secrets:
+  postgres_admin_password:
+    file: ${POSTGRES_ADMIN_SECRET_FILE:-./.secrets/postgres_admin_password}
+  postgres_app_password:
+    file: ${POSTGRES_APP_SECRET_FILE:-./.secrets/postgres_app_password}
