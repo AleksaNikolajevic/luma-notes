@@ -9,7 +9,7 @@ COPY apps/web apps/web
 COPY packages/contracts packages/contracts
 RUN pnpm --filter @notes/contracts build && pnpm --filter @notes/web build
 
-FROM nginx:1.28-alpine AS runtime
+FROM nginx:1.31-alpine AS runtime
 RUN rm -f /etc/nginx/conf.d/default.conf \
     && chown -R nginx:nginx /var/cache/nginx /var/run /etc/nginx/conf.d
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
