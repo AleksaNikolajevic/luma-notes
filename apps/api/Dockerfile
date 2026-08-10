@@ -1,4 +1,4 @@
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
@@ -9,7 +9,7 @@ COPY apps/api apps/api
 COPY packages/contracts packages/contracts
 RUN pnpm --filter @notes/contracts build && pnpm --filter @notes/api build
 
-FROM node:22-alpine AS runtime
+FROM node:26-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 RUN corepack enable \
